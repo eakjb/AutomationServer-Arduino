@@ -7,25 +7,29 @@
 #define OUTPUTS true
 #define DOOR true
 
-//#if DOOR
-//bool doorState = false;
-//const int doorPin = 3;
-//const int lightPin = 2;
-//#endif
+#if DOOR
+bool doorState = false;
+long lastDoorChange = millis();
+#define DOOR_PIN 5
+#define LIGHT_PIN 2
+#define TOGGLE_PIN 3
+bool buttonState = false;
+#endif
 
 byte mac[] = {
   0xB0, 0x0B, 0x1E, 0x5D, 0x1C, 0x3D
 };
-IPAddress ip(192, 168, 2, 60); //remember to update registration in setup()
+IPAddress ip(192, 168, 0, 60); //remember to update registration in setup()
 
-EthernetServer server(81);
+EthernetServer server(80);
 
-const byte PIN_COUNT = 13;
+const byte PIN_COUNT = 5;
 bool analogPins[] = {false, false, false, false, false, false};
+bool used[] = {false,false,true,false,true};
 byte analogStates[PIN_COUNT];
 
 void setup() {
-  Serial.begin(9600);
+//  Serial.begin(9600);
 
   //Delcare output pins
 
@@ -34,32 +38,45 @@ void setup() {
 
   //End
 
-
   Ethernet.begin(mac, ip);
 
   delay(500);
-  Serial.println("Registering...");
-  EthernetClient client;
-
-  // if you get a connection, report back via serial:
-  if (client.connect("192.168.2.50", 80)) {
-    char payload[] = "{ \"name\": \"JakeRoom\", \"address\": \"http://192.168.0.137:81\" }\r";
-    Serial.println("connected");
-    // Make a HTTP request:
-    client.println("POST /api/v1/Nodes HTTP/1.1");
-    client.println("Content-Type: application/json");
-    client.print("Content-Length: ");
-    client.println(strlen(payload));
-    client.println();
-    client.println(payload);
-  } else {
-    // kf you didn't get a connection to the server:
-    Serial.println("connection failed");
-  }
+//  Serial.println("R");
+  
+  String payload = "{ \"name\": \"JakeRoom\", \"address\": \"http://192.168.0.60\" }\r";
+  char path[] = "/api/v1/Nodes";
+  
+  sendPayloadToServer(payload,path);
+  sendPinNotification(2);
+  sendPinNotification(4);
 
   server.begin();
-  Serial.print("server is at ");
   Serial.println(Ethernet.localIP());
+}
+
+void sendPayloadToServer(String &payload,char path[]) {
+  Serial.println(path);
+  Serial.println(payload);
+  
+  EthernetClient client;
+  // if you get a connection, report back via serial:
+  if (client.connect("192.168.0.50", 80)) {
+    Serial.println('c');
+    // Make a HTTP request:
+    client.print("POST ");
+    client.print(path);
+    client.println(" HTTP/1.1");
+    client.println("Content-Type: application/json");
+    client.print("Content-Length: ");
+    client.println(payload.length());
+    client.println();
+    client.println(payload);
+    client.stop();
+  } else {
+    // kf you didn't get a connection to the server:
+    Serial.println('f');
+  }
+  Serial.println('d');
 }
 
 String httpStatus;
@@ -75,9 +92,7 @@ int parseInteger(String str) {
   if (str == "2") return 2;
   if (str == "3") return 3;
   if (str == "4") return 4;
-  if (str == "10") return 10;
-  if (str == "11") return 11;
-  if (str == "12") return 12;
+  if (str == "10") return 5;
   if (str == "13") return 13;
   return -1;
 }
@@ -267,11 +282,16 @@ void notFound() {
 
 //Handle queries at the HTTP layer
 void loop() {
+  bool states[PIN_COUNT];
+  for (byte i = 0; i<PIN_COUNT; i++) {
+    states[i] = digitalRead(i);
+  }
+  
   EthernetClient client = server.available();
   if (client) {
-    Serial.println("nc");//new client");
+    Serial.println('n');//new client");
 
-    Serial.println("fl");//--------Begin First Line----------");
+//    Serial.println("fl");//--------Begin First Line----------");
     //Read the first line only into httpReq
     httpReq = "";
     while (client.connected()) {
@@ -283,7 +303,7 @@ void loop() {
         httpReq += c;
       }
     }
-    Serial.println("el");//--------End First Line----------");
+//    Serial.println("el");//--------End First Line----------");
 
     //Throw out the http headers #TrimTheFat
     boolean currentLineIsBlank = true;
@@ -321,7 +341,7 @@ void loop() {
         }
       }
     }
-    Serial.println("--End Headers--");
+//    Serial.println("-EH-");
 
 
     //Throw out the headers and read the rest of the request
@@ -354,7 +374,7 @@ void loop() {
         break;
       }
     }
-    Serial.println("\n--End Body--");
+//    Serial.println("\n-EB-");
 
     //Default headers
     httpStatus = "200 OK";
@@ -422,6 +442,7 @@ void loop() {
 
     client.println();
 
+//    Serial.println("d");
     if (useRes) {
       res.prettyPrintTo(client);
     } else {
@@ -431,17 +452,61 @@ void loop() {
     delay(10);
 
     client.stop();
-    Serial.println("dc");
+    Serial.println('d');
   }
   
-//#if DOOR
-//  bool newState = digitalRead(doorPin);
-//  if (newState!=doorState) {
+#if DOOR
+  bool newState = digitalRead(DOOR_PIN);
+  if (newState!=doorState&&millis()-lastDoorChange>500) {
+
+    sendPinNotification(DOOR_PIN);
 //    digitalWrite(lightPin,!newState);
-//    
-//    doorState=newState;
-//  }
-//#endif
-  
+//    Serial.println("Change detected");
+    doorState=newState;
+    lastDoorChange = millis();
+
+    if (newState==LOW) {
+      Serial.println('L');
+      digitalWrite(LIGHT_PIN,HIGH);
+    } else {
+      Serial.println('H');
+    }
+  }
+  bool newButtonState = digitalRead(TOGGLE_PIN);
+  if (newButtonState&&!buttonState&&millis()-lastDoorChange>500) {
+    digitalWrite(LIGHT_PIN,!digitalRead(LIGHT_PIN));
+    lastDoorChange = millis();
+  }
+  buttonState=newButtonState;
+#endif
+
+  for (byte i = 0; i<PIN_COUNT; i++) {
+    if (used[i]&&states[i] != digitalRead(i)) {
+      Serial.print('P');
+      Serial.println(i);
+//      Serial.println(" changed");
+      sendPinNotification(i);
+    }
+  }
 }
 
+void sendPinNotification(int i) {
+//      Serial.println(availableMemory());
+      String payload = String("{\"title\": \"Pin ") + String(i) + String(" is Now ") + 
+      String(digitalRead(i)?"On":"Off") + String("\"}\r");
+//      Serial.println(payload.length());
+//      Serial.println(availableMemory());
+      char path[] = "/api/v1/Notifications";
+      sendPayloadToServer(payload,path);
+}
+//int availableMemory() {
+//  int size = 2048; // Use 2048 with ATmega328
+//  byte *buf;
+//
+//  while ((buf = (byte *) malloc(--size)) == NULL)
+//    ;
+//
+//  free(buf);
+//
+//  return size;
+//}
